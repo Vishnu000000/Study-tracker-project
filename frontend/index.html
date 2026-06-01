@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Personal Study Tracker</title>
+    <style>
+         :root {
+            --bg-color: #0e1117;
+            --card-bg: #161b22;
+            --text-color: #c9d1d9;
+            --accent-start: #238636;
+            --accent-stop: #da3633;
+            --sub-text: #8b949e;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            background: var(--card-bg);
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            width: 400px;
+        }
+        
+        .timer-display {
+            font-size: 4rem;
+            font-weight: bold;
+            margin: 20px 0;
+            font-variant-numeric: tabular-nums;
+        }
+        
+        .toggle-btn {
+            font-size: 1.25rem;
+            font-weight: bold;
+            padding: 16px 40px;
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            color: white;
+            transition: 0.2s;
+            width: 80%;
+            text-transform: uppercase;
+        }
+        
+        .btn-start {
+            background-color: var(--accent-start);
+        }
+        
+        .btn-stop {
+            background-color: var(--accent-stop);
+        }
+        
+        .suggestion-box {
+            margin-top: 25px;
+            min-height: 50px;
+            font-style: italic;
+            color: #58a6ff;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(88, 166, 255, 0.1);
+        }
+        
+        .log-section {
+            margin-top: 30px;
+            text-align: left;
+            border-top: 1px solid #30363d;
+            padding-top: 20px;
+        }
+        
+        .log-item {
+            font-size: 0.85rem;
+            padding: 6px 0;
+            border-bottom: 1px solid #21262d;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        #connection-status {
+            font-size: 0.8rem;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h2>Study Tracker</h2>
+        <div class="timer-display" id="timeDisplay">00:00:00</div>
+        <button id="toggleBtn" class="toggle-btn btn-start">Start Studying</button>
+        <div class="suggestion-box" id="suggestionBox">Ready? Hit Start or press Ctrl+Alt+S.</div>
+        <div id="connection-status" style="color: #da3633;">🔴 Java Service Disconnected</div>
+
+        <div class="log-section">
+            <div style="color:var(--sub-text); font-size: 0.9rem; margin-bottom: 10px;">TODAY'S LOG</div>
+            <div id="logList"></div>
+        </div>
+    </div>
+
+    <script>
+        let isStudying = false;
+        let timerInterval;
+        let totalSeconds = 0;
+        const toggleBtn = document.getElementById('toggleBtn');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const suggestionBox = document.getElementById('suggestionBox');
+        const logList = document.getElementById('logList');
+        const statusText = document.getElementById('connection-status');
+
+        renderLog();
+
+        // Connect to Spring Boot WebSocket
+        const connectWebSocket = () => {
+            const socket = new WebSocket('ws://localhost:8080/shortcut');
+            socket.onopen = () => {
+                statusText.innerText = "🟢 Java Service Connected (Ctrl+Alt+S Active)";
+                statusText.style.color = "#2ea043";
+            };
+            socket.onmessage = (event) => {
+                if (event.data === "toggle") handleToggle();
+            };
+            socket.onclose = () => {
+                statusText.innerText = "🔴 Java Service Disconnected";
+                statusText.style.color = "#da3633";
+                setTimeout(connectWebSocket, 5000); // Auto-reconnect
+            };
+        };
+        connectWebSocket();
+
+        toggleBtn.addEventListener('click', handleToggle);
+
+        function handleToggle() {
+            if (!isStudying) {
+                isStudying = true;
+                totalSeconds = 0;
+                toggleBtn.innerText = "Stop / Distracted";
+                toggleBtn.className = "toggle-btn btn-stop";
+                suggestionBox.innerText = "Focus mode active. Ignore distractions!";
+                timerInterval = setInterval(updateTimer, 1000);
+            } else {
+                isStudying = false;
+                clearInterval(timerInterval);
+                let elapsedMinutes = (totalSeconds / 60).toFixed(2);
+                toggleBtn.innerText = "Start Studying";
+                toggleBtn.className = "toggle-btn btn-start";
+                timeDisplay.innerText = "00:00:00";
+                suggestionBox.innerText = `Logged ${elapsedMinutes} mins. Ready for next round?`;
+                if (totalSeconds > 5) saveSession(elapsedMinutes);
+            }
+        }
+
+        function updateTimer() {
+            totalSeconds++;
+            let hrs = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+            let mins = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+            let secs = (totalSeconds % 60).toString().padStart(2, '0');
+            timeDisplay.innerText = `${hrs}:${mins}:${secs}`;
+        }
+
+        function saveSession(minutes) {
+            let history = JSON.parse(localStorage.getItem('studyHistory')) || [];
+            history.unshift({
+                time: new Date().toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }),
+                duration: minutes
+            });
+            localStorage.setItem('studyHistory', JSON.stringify(history));
+            renderLog();
+        }
+
+        function renderLog() {
+            let history = JSON.parse(localStorage.getItem('studyHistory')) || [];
+            logList.innerHTML = '';
+            history.slice(0, 5).forEach(item => {
+                logList.innerHTML += `<div class="log-item"><span>${item.time}</span> <strong>${item.duration} mins</strong></div>`;
+            });
+        }
+    </script>
+</body>
+
+</html>
